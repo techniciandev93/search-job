@@ -11,30 +11,21 @@ def get_vacancies_sj(url, params, headers=None, search_field=None):
     if search_field:
         params['keyword'] = search_field
 
-    response = requests.get(url, headers=headers, params=params)
-    response.raise_for_status()
-    page_vacancy = response.json()
-    vacancies.extend(page_vacancy['objects'])
-
-    params['page'] = 1
+    page_vacancy = {'more': True}
     while page_vacancy['more']:
         response = requests.get(url, headers=headers, params=params)
         response.raise_for_status()
         page_vacancy = response.json()
         vacancies.extend(page_vacancy['objects'])
         params['page'] += 1
-    return vacancies
+    vacancy_total = page_vacancy['total']
+    return vacancies, vacancy_total
 
 
 def predict_rub_salary_sj(vacancy):
-    if vacancy['currency'] is not None:
+    if vacancy['currency']:
         if vacancy.get('currency') == 'rub':
-            if all((vacancy.get('payment_to'), vacancy.get('payment_from'))):
-                return (vacancy.get('payment_to') + vacancy.get('payment_from')) / 2
-            elif vacancy.get('payment_to'):
-                return vacancy.get('payment_to') * 0.8
-            elif vacancy.get('payment_from'):
-                return vacancy.get('payment_from') * 1.2
+            return predict_salary(vacancy.get('payment_to'), vacancy.get('payment_from'))
 
 
 def get_vacancies_hh(url, params, headers=None, search_field=None):
@@ -43,52 +34,54 @@ def get_vacancies_hh(url, params, headers=None, search_field=None):
     if search_field:
         params['text'] = search_field
 
-    response = requests.get(url, params=params, headers=headers)
-    response.raise_for_status()
-    first_page_vacancies = response.json()
-    vacancies.extend(first_page_vacancies['items'])
-
-    for page in range(1, first_page_vacancies['pages']):
-        params['page'] = page
-        response = requests.get(url, params=params)
+    while True:
+        response = requests.get(url, params=params, headers=None)
         response.raise_for_status()
-        vacancies.extend(response.json()['items'])
-    return vacancies
+        page_vacancy = response.json()
+        vacancies.extend(page_vacancy['items'])
+        params['page'] += 1
+        if page_vacancy['pages'] == params['page']:
+            break
+    vacancy_total = page_vacancy['found']
+    return vacancies, vacancy_total
 
 
 def predict_rub_salary_hh(vacancy):
-    if vacancy['salary'] is not None:
+    if vacancy['salary']:
         if vacancy['salary'].get('currency') == 'RUR':
-            if all((vacancy['salary'].get('to'), vacancy['salary'].get('from'))):
-                return (vacancy['salary'].get('to') + vacancy['salary'].get('from')) / 2
-            elif vacancy['salary'].get('to'):
-                return vacancy['salary'].get('to') * 0.8
-            elif vacancy['salary'].get('from'):
-                return vacancy['salary'].get('from') * 1.2
+            return predict_salary(vacancy['salary'].get('to'), vacancy['salary'].get('from'))
+
+
+def predict_salary(salary_to, salary_from):
+    if all((salary_to, salary_from)):
+        return (salary_to + salary_from) / 2
+    elif salary_to:
+        return salary_to * 0.8
+    elif salary_from:
+        return salary_from * 1.2
 
 
 def search_job_main(url, headers, params, prog_languages, get_vacancies_func, predict_rub_salary_func):
     programming_languages = {language: {} for language in prog_languages}
     for programming_language in programming_languages:
-        vacancies = get_vacancies_func(url, params, headers, programming_language)
-        vacancy_salary = []
+        vacancies, vacancy_total = get_vacancies_func(url, params, headers, programming_language)
+        vacancy_salaries = []
         for vacancy in vacancies:
             salary = predict_rub_salary_func(vacancy)
-            if salary is not None:
-                vacancy_salary.append(salary)
+            if salary:
+                vacancy_salaries.append(salary)
 
-        if not vacancy_salary:
+        if not vacancy_salaries:
             average_salary = 0
         else:
-            average_salary = int(sum(vacancy_salary) / len(vacancy_salary))
+            average_salary = int(sum(vacancy_salaries) / len(vacancy_salaries))
 
-        programming_languages[programming_language].update(
-            {
-                'vacancies_found': len(vacancies),
-                'vacancies_processed': len(vacancy_salary),
-                'average_salary': average_salary
-            }
-        )
+        programming_languages[programming_language] = {
+            'vacancies_found': vacancy_total,
+            'vacancies_processed': len(vacancy_salaries),
+            'average_salary': average_salary
+        }
+
     return programming_languages
 
 
@@ -103,16 +96,33 @@ def create_table(programming_languages, title):
 
 if __name__ == '__main__':
     load_dotenv()
+
+    publication_period = 30
+    page_vacancy_counts = 100
+    sj_moscow_town_id = 4
+    sj_programmer_position_id = 48
+
     superjob_token = os.environ['SUPERJOB_TOKEN']
     sj_headers = {'X-Api-App-Id': superjob_token}
-    sj_params = {'period': 30, 'town': 4, 'count': 100, 'catalogues': 48}
+    sj_params = {'period': publication_period,
+                 'town': sj_moscow_town_id,
+                 'count': page_vacancy_counts,
+                 'catalogues': sj_programmer_position_id}
     sj_url = 'https://api.superjob.ru/2.0/vacancies'
 
-    hh_params = {'professional_role': 96, 'area': 1, 'period': 30, 'per_page': 100}
+    hh_programmer_position_id = 96
+    hh_moscow_region_id = 1
+
+    hh_params = {'professional_role': hh_programmer_position_id,
+                 'area': hh_moscow_region_id,
+                 'period': publication_period,
+                 'per_page': page_vacancy_counts}
     hh_url = 'https://api.hh.ru/vacancies'
     hh_headers = None
 
-    parser = argparse.ArgumentParser(description="Запустите скрипт, указав несколько языков программирования через "
+    parser = argparse.ArgumentParser(description="Этот скрипт предназначен для поиска зарплаты по языкам "
+                                                 "программирования на ресурсах superjob.ru и hh.ru используя их API. "
+                                                 "Запустите скрипт, указав несколько языков программирования через "
                                                  "пробел после ключа -l : python main.py -l Python Java GO, "
                                                  "по умолчанию произойдёт поиск по языку Python: python main.py")
     parser.add_argument('-l', '--list', type=str, help="Введите несколько языков программирования через пробел",
