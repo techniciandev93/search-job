@@ -23,9 +23,10 @@ def get_vacancies_sj(url, params, headers=None, search_field=None):
 
 
 def predict_rub_salary_sj(vacancy):
-    if vacancy['currency']:
-        if vacancy.get('currency') == 'rub':
-            return predict_salary(vacancy.get('payment_to'), vacancy.get('payment_from'))
+    if not vacancy['currency']:
+        return None
+    if vacancy.get('currency') == 'rub':
+        return predict_salary(vacancy.get('payment_to'), vacancy.get('payment_from'))
 
 
 def get_vacancies_hh(url, params, headers=None, search_field=None):
@@ -47,9 +48,10 @@ def get_vacancies_hh(url, params, headers=None, search_field=None):
 
 
 def predict_rub_salary_hh(vacancy):
-    if vacancy['salary']:
-        if vacancy['salary'].get('currency') == 'RUR':
-            return predict_salary(vacancy['salary'].get('to'), vacancy['salary'].get('from'))
+    if not vacancy['salary']:
+        return None
+    if vacancy['salary'].get('currency') == 'RUR':
+        return predict_salary(vacancy['salary'].get('to'), vacancy['salary'].get('from'))
 
 
 def predict_salary(salary_to, salary_from):
@@ -61,27 +63,26 @@ def predict_salary(salary_to, salary_from):
         return salary_from * 1.2
 
 
-def search_job_main(url, headers, params, prog_languages, get_vacancies_func, predict_rub_salary_func):
-    programming_languages = {language: {} for language in prog_languages}
-    for programming_language in programming_languages:
-        vacancies, vacancy_total = get_vacancies_func(url, params, headers, programming_language)
-        vacancy_salaries = []
-        for vacancy in vacancies:
-            salary = predict_rub_salary_func(vacancy)
-            if salary:
-                vacancy_salaries.append(salary)
+def process_calculation_vacancies(programming_languages, programming_language, vacancies, predict_rub_salary_func,
+                                  vacancy_total):
+    vacancy_salary = []
+    for vacancy in vacancies:
+        salary = predict_rub_salary_func(vacancy)
+        if salary is not None:
+            vacancy_salary.append(salary)
 
-        if not vacancy_salaries:
-            average_salary = 0
-        else:
-            average_salary = int(sum(vacancy_salaries) / len(vacancy_salaries))
+    if not vacancy_salary:
+        average_salary = 0
+    else:
+        average_salary = int(sum(vacancy_salary) / len(vacancy_salary))
 
-        programming_languages[programming_language] = {
+    programming_languages[programming_language].update(
+        {
             'vacancies_found': vacancy_total,
-            'vacancies_processed': len(vacancy_salaries),
+            'vacancies_processed': len(vacancy_salary),
             'average_salary': average_salary
         }
-
+    )
     return programming_languages
 
 
@@ -129,28 +130,22 @@ if __name__ == '__main__':
                         nargs='*', default=['Python'])
     args = parser.parse_args()
 
-    sj_vacancies = search_job_main(
-        sj_url,
-        sj_headers,
-        sj_params,
-        args.list,
-        get_vacancies_sj,
-        predict_rub_salary_sj
-    )
+    hh_programming_languages = {language: {} for language in args.list}
+    sj_programming_languages = {language: {} for language in args.list}
 
-    hh_vacancies = search_job_main(
-        hh_url,
-        hh_headers,
-        hh_params,
-        args.list,
-        get_vacancies_hh,
-        predict_rub_salary_hh
-    )
+    for language in args.list:
+        sj_vacancies, sj_vacancy_total = get_vacancies_sj(sj_url, sj_params, sj_headers, language)
+        hh_vacancies, hh_vacancy_total = get_vacancies_hh(hh_url, hh_params, hh_headers, language)
+
+        process_calculation_vacancies(sj_programming_languages, language, sj_vacancies, predict_rub_salary_sj,
+                                      sj_vacancy_total)
+        process_calculation_vacancies(hh_programming_languages, language, hh_vacancies, predict_rub_salary_hh,
+                                      hh_vacancy_total)
 
     sj_title = 'SuperJob Moscow'
-    sj_table = create_table(sj_vacancies, sj_title)
+    sj_table = create_table(sj_programming_languages, sj_title)
     print(sj_table.table)
 
     hh_title = 'HH Moscow'
-    hh_table = create_table(hh_vacancies, hh_title)
+    hh_table = create_table(hh_programming_languages, hh_title)
     print(hh_table.table)
