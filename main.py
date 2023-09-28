@@ -27,13 +27,14 @@ def get_vacancies_sj(url, params, headers=None, search_field=None):
 
 
 def predict_rub_salary_sj(vacancy):
-    if vacancy.get('currency') == 'rub':
-        if all((vacancy.get('payment_to'), vacancy.get('payment_from'))):
-            return (vacancy.get('payment_to') + vacancy.get('payment_from')) / 2
-        elif vacancy.get('payment_to'):
-            return vacancy.get('payment_to') * 0.8
-        elif vacancy.get('payment_from'):
-            return vacancy.get('payment_from') * 1.2
+    if vacancy['currency'] is not None:
+        if vacancy.get('currency') == 'rub':
+            if all((vacancy.get('payment_to'), vacancy.get('payment_from'))):
+                return (vacancy.get('payment_to') + vacancy.get('payment_from')) / 2
+            elif vacancy.get('payment_to'):
+                return vacancy.get('payment_to') * 0.8
+            elif vacancy.get('payment_from'):
+                return vacancy.get('payment_from') * 1.2
 
 
 def get_vacancies_hh(url, params, headers=None, search_field=None):
@@ -59,30 +60,33 @@ def predict_rub_salary_hh(vacancy):
     if vacancy['salary'] is not None:
         if vacancy['salary'].get('currency') == 'RUR':
             if all((vacancy['salary'].get('to'), vacancy['salary'].get('from'))):
-                return (vacancy['salary'].get('to') + vacancy['salary'].get('from'))/2
+                return (vacancy['salary'].get('to') + vacancy['salary'].get('from')) / 2
             elif vacancy['salary'].get('to'):
                 return vacancy['salary'].get('to') * 0.8
             elif vacancy['salary'].get('from'):
                 return vacancy['salary'].get('from') * 1.2
 
 
-def search_job_main(url,  headers, params, prog_languages, get_vacancies_func, predict_rub_salary_func):
+def search_job_main(url, headers, params, prog_languages, get_vacancies_func, predict_rub_salary_func):
     programming_languages = {language: {} for language in prog_languages}
     for programming_language in programming_languages:
         vacancies = get_vacancies_func(url, params, headers, programming_language)
-        if not vacancies:
-            break
         vacancy_salary = []
         for vacancy in vacancies:
             salary = predict_rub_salary_func(vacancy)
             if salary is not None:
                 vacancy_salary.append(salary)
 
+        if not vacancy_salary:
+            average_salary = 0
+        else:
+            average_salary = int(sum(vacancy_salary) / len(vacancy_salary))
+
         programming_languages[programming_language].update(
             {
                 'vacancies_found': len(vacancies),
                 'vacancies_processed': len(vacancy_salary),
-                'average_salary': int(sum(vacancy_salary) / len(vacancy_salary))
+                'average_salary': average_salary
             }
         )
     return programming_languages
