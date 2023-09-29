@@ -65,24 +65,23 @@ def predict_salary(salary_to, salary_from):
 
 def process_calculation_vacancies(programming_languages, programming_language, vacancies, predict_rub_salary_func,
                                   vacancy_total):
-    vacancy_salary = []
+    vacancy_salaries = []
     for vacancy in vacancies:
         salary = predict_rub_salary_func(vacancy)
-        if salary is not None:
-            vacancy_salary.append(salary)
+        if salary:
+            vacancy_salaries.append(salary)
 
-    if not vacancy_salary:
+    if not vacancy_salaries:
         average_salary = 0
     else:
-        average_salary = int(sum(vacancy_salary) / len(vacancy_salary))
+        average_salary = int(sum(vacancy_salaries) / len(vacancy_salaries))
 
-    programming_languages[programming_language].update(
-        {
-            'vacancies_found': vacancy_total,
-            'vacancies_processed': len(vacancy_salary),
-            'average_salary': average_salary
-        }
-    )
+    programming_languages[programming_language] = {
+        'vacancies_found': vacancy_total,
+        'vacancies_processed': len(vacancy_salaries),
+        'average_salary': average_salary
+    }
+
     return programming_languages
 
 
